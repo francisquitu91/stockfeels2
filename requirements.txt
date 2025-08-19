@@ -8,4 +8,4 @@ python-dotenv==1.0.0
 # Bumped to satisfy supabase/realtime (requires websockets>=11 and <16)
 websockets==11.0.3
 requests==2.31.0
-Pillow==11.3.0
+Pillow==10.0.1
