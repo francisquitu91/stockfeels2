@@ -1,0 +1,10 @@
+matplotlib==3.7.1
+pandas==1.5.3
+streamlit==1.24.1
+beautifulsoup4==4.9.3
+nltk==3.6.6
+supabase==2.18.1
+python-dotenv==1.0.0
+# Bumped to satisfy supabase/realtime (requires websockets>=11 and <16)
+websockets==11.0.3
+requests==2.31.0
