@@ -1,5 +1,5 @@
 matplotlib==3.7.1
-pandas==1.5.3
+pandas==2.2.0
 streamlit==1.30.0
 beautifulsoup4==4.9.3
 nltk==3.6.6
