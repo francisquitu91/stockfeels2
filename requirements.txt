@@ -5,8 +5,9 @@ beautifulsoup4==4.9.3
 nltk==3.6.6
 supabase==2.18.1
 python-dotenv==1.0.0
-# Bumped to satisfy supabase/realtime (requires websockets>=11 and <16)
-websockets==11.0.3
+# Use same websockets version as local .venv where imports succeed
+# supabase/realtime accepts websockets >=11 and <16, so 15.0.1 is safe
+websockets==15.0.1
 requests==2.31.0
 plotly==5.18.0
 openai
