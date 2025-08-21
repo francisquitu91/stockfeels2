@@ -1,0 +1,4 @@
+# Disable Streamlit's file watcher to avoid "inotify instance limit reached"
+# Useful on shared hosts (Streamlit Cloud) where you can't increase inotify limits.
+[server]
+fileWatcherType = "none"
