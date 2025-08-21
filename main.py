@@ -30,6 +30,7 @@ import time
 import re
 import json
 import os
+from pathlib import Path
 from openai import OpenAI
 from firecrawl import FirecrawlApp
 import logging
@@ -425,9 +426,17 @@ def load_finviz_filters():
     Load Finviz filters from JSON file
     """
     try:
-        with open('filtros.json', 'r', encoding='utf-8') as f:
+        # Resolve filtros.json relative to this file to avoid CWD-related FileNotFoundError
+        base = Path(__file__).resolve().parent
+        filtros_path = base / 'filtros.json'
+        if not filtros_path.exists():
+            # Try also repository root as fallback
+            filtros_path = Path('filtros.json')
+        with open(filtros_path, 'r', encoding='utf-8') as f:
             return json.load(f)
     except Exception as e:
+        log_debug(f"Error loading filtros.json at {filtros_path if 'filtros_path' in locals() else 'unknown'}: {e}", exc_info=True)
+        # Show a user-friendly message but avoid exposing stack trace
         st.error(f"Error loading filters: {str(e)}")
         return {}
 
