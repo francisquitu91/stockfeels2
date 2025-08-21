@@ -345,14 +345,12 @@ def generate_ai_summary(content_data, ticker, sentiment_score, stats=None, top_p
     Genera un resumen inteligente usando OpenRouter AI
     """
     try:
-        # Configure OpenRouter/OpenAI client (prefer env vars for keys)
-        api_key = os.getenv("OPENROUTER_API_KEY") or os.getenv("OPENAI_API_KEY") or "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"
+        # Configure OpenAI client (use OPENAI_API_KEY from environment)
+        api_key = os.getenv("OPENAI_API_KEY")
         if not api_key:
-            return "AI service not configured. Set OPENROUTER_API_KEY in your .env or environment."
-        client = OpenAI(
-            base_url="https://openrouter.ai/api/v1",
-            api_key=api_key
-        )
+            return "AI service not configured. Set OPENAI_API_KEY in your .env or environment."
+        base_url = os.getenv('OPENAI_API_BASE')
+        client = OpenAI(api_key=api_key, base_url=base_url) if base_url else OpenAI(api_key=api_key)
         # Preparar el contexto para el AI
         full_content = "\n".join([f"- {item['title']}: {item['content'][:700]}..." for item in content_data[:8]])
 
@@ -438,14 +436,12 @@ def generate_investment_advice(user_message, investment_profile=None, chat_histo
     Generate investment advice using GPT-4.1-nano with Finviz integration and conversation context
     """
     try:
-        # Configure OpenRouter/OpenAI client (prefer env vars for keys)
-        api_key = os.getenv("OPENROUTER_API_KEY") or os.getenv("OPENAI_API_KEY") or "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"
+        # Configure OpenAI client (use OPENAI_API_KEY from environment)
+        api_key = os.getenv("OPENAI_API_KEY")
         if not api_key:
-            return "AI service not configured. Set OPENROUTER_API_KEY in your .env or environment."
-        client = OpenAI(
-            base_url="https://openrouter.ai/api/v1",
-            api_key=api_key
-        )
+            return "AI service not configured. Set OPENAI_API_KEY in your .env or environment."
+        base_url = os.getenv('OPENAI_API_BASE')
+        client = OpenAI(api_key=api_key, base_url=base_url) if base_url else OpenAI(api_key=api_key)
         
         # Load Finviz filters
         filters = load_finviz_filters()
@@ -1262,7 +1258,7 @@ def show_investment_chatbot():
                                             st.session_state.investment_chat_history[:-1],
                                             snapshot,
                                             st.session_state.get('investment_ticker', ''),
-                                            api_key=os.getenv('OPENAI_API_KEY') or os.getenv('OPENROUTER_API_KEY')
+                                            api_key=os.getenv('OPENAI_API_KEY')
                                         )
                                     except Exception:
                                         # fallback to original generator
@@ -1950,7 +1946,7 @@ def show_finviz_dashboard_chat():
                                         st.session_state['kpis_chat_history'],
                                         snapshot,
                                         current or ticker,
-                                        api_key=os.getenv('OPENAI_API_KEY') or os.getenv('OPENROUTER_API_KEY')
+                                        api_key=os.getenv('OPENAI_API_KEY')
                                     )
                                     st.session_state['kpis_chat_history'].append({'role': 'assistant', 'content': ai_response})
                                     st.experimental_rerun()

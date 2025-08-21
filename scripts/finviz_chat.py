@@ -25,25 +25,24 @@ def generate_system_prompt(snapshot: Dict[str, str], ticker: str) -> str:
     return prompt
 
 
-def chat_with_snapshot(messages: List[Dict[str, str]], snapshot: Dict[str, str], ticker: str, api_key: str = None, model: str = "gpt-3.5-turbo") -> str:
+def chat_with_snapshot(messages: List[Dict[str, str]], snapshot: Dict[str, str], ticker: str, api_key: str = None, model: str = "gpt-4.1-nano-2025-04-14") -> str:
     """Send a chat completion request including the snapshot as a system message.
 
     messages: list of dicts like {"role": "user", "content": "..."}
     Returns assistant text or raises Exception.
     """
-    # Prefer explicit api_key, then env var OPENROUTER_API_KEY then OPENAI_API_KEY
+    # Prefer explicit api_key argument, then OPENAI_API_KEY environment variable
     if api_key is None:
-        api_key = os.environ.get('OPENROUTER_API_KEY') or os.environ.get('OPENAI_API_KEY')
-    # fallback to hard-coded OpenRouter key for local testing (override with env var or argument)
+        api_key = os.environ.get('OPENAI_API_KEY')
     if not api_key:
-        api_key = "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"
+        raise RuntimeError("OpenAI API key not configured. Set OPENAI_API_KEY in the environment.")
 
-    # Use OpenAI client (new interface). Default to OpenRouter base_url so we talk to OpenRouter.
-    base_url = os.environ.get('OPENROUTER_API_BASE', 'https://openrouter.ai/api/v1')
-    client = OpenAI(api_key=api_key, base_url=base_url)
+    # Use OpenAI official client (no OpenRouter base_url). Allow optional OPENAI_API_BASE override.
+    base_url = os.environ.get('OPENAI_API_BASE')
+    client = OpenAI(api_key=api_key, base_url=base_url) if base_url else OpenAI(api_key=api_key)
 
-    # Allow model override via env var for OpenRouter-specific models
-    model = os.environ.get('OPENROUTER_MODEL', model)
+    # Allow model override via env var OPENAI_MODEL
+    model = os.environ.get('OPENAI_MODEL', model)
 
     system_prompt = generate_system_prompt(snapshot, ticker)
     payload = [{"role": "system", "content": system_prompt}] + messages
