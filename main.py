@@ -4459,7 +4459,7 @@ def main():
     
     # Sync state with URL query params
     try:
-    params = st.query_params
+        params = st.query_params
         if "page" in params:
             page_val = params["page"][0] if isinstance(params["page"], list) else params["page"]
             if page_val in ("landing", "sentiment", "investment", "kpis_chat"):
