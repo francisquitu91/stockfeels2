@@ -20,5 +20,6 @@ COPY . .
 
 EXPOSE 8501
 
-# Start Streamlit on the assigned port (Render/Cloud Run set PORT env)
-CMD ["streamlit", "run", "main.py", "--server.address=0.0.0.0", "--server.port=${PORT:-8501}"]
+# Start Streamlit on the assigned port (Render/Cloud Run set PORT env).
+# Use shell form so ${PORT:-8501} is expanded at container runtime.
+CMD ["sh", "-c", "streamlit run main.py --server.address=0.0.0.0 --server.port=${PORT:-8501}"]
