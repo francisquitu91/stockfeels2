@@ -1818,7 +1818,7 @@ def refresh_session_with_refresh_token(refresh_token: str):
 
 # If the browser redirected with a remember_uid query param, try to restore session
 try:
-    params = st.experimental_get_query_params()
+    params = st.query_params
     remember_uid = params.get('remember_uid', [None])[0] if params else None
     if remember_uid and (not st.session_state.get('user')):
         # Attempt to load refresh token from DB and refresh session
@@ -4459,7 +4459,7 @@ def main():
     
     # Sync state with URL query params
     try:
-        params = st.experimental_get_query_params()
+    params = st.query_params
         if "page" in params:
             page_val = params["page"][0] if isinstance(params["page"], list) else params["page"]
             if page_val in ("landing", "sentiment", "investment", "kpis_chat"):
