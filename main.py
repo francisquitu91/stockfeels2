@@ -1724,12 +1724,26 @@ def delete_local_session():
     except Exception:
         pass
 
-# Load persisted session on startup (if any)
+# Load persisted session on startup only when explicitly enabled.
+# By default we DISABLE server-side local-session restores to avoid a leaked
+# `.session.json` on the server causing every visitor to be signed in as that user.
+# To enable per-device local restores for development, set the environment variable
+# ENABLE_LOCAL_SESSIONS=1 on that machine (do NOT set it on production hosts).
 try:
-    if 'user' not in st.session_state or not st.session_state.get('user'):
-        loaded = load_local_session()
-        if loaded:
-            st.session_state['user'] = loaded
+    enable_local = os.getenv('ENABLE_LOCAL_SESSIONS', '0') == '1'
+    if enable_local:
+        if 'user' not in st.session_state or not st.session_state.get('user'):
+            loaded = load_local_session()
+            if loaded:
+                st.session_state['user'] = loaded
+    else:
+        # Defensive: if a `.session.json` somehow exists on a production host,
+        # remove it so it can't be read accidentally.
+        try:
+            if os.path.exists('.session.json'):
+                os.remove('.session.json')
+        except Exception:
+            pass
 except Exception:
     pass
 
@@ -1830,21 +1844,44 @@ try:
                 user = refreshed.get('user') or refreshed.get('user')
                 if user:
                     st.session_state['user'] = user
-    # Handle logout via query param ?action=logout
+    # Conditional local-session restore for allowed pages.
+    # This restores a previously saved local session only when the user navigates
+    # to certain pages so signed-in users keep their session across page-based links.
+    try:
+        page = params.get('page', [None])[0] if params else None
+        allowed = {'kpis_chat', 'investment', 'sentiment'}
+        if page in allowed and (not st.session_state.get('user')):
+            loaded = load_local_session()
+            if loaded:
+                st.session_state['user'] = loaded
+    except Exception:
+        pass
+    # NOTE: logout via query param is disabled to avoid accidental remote logouts.
+    # The application UI no longer exposes a Logout button; sessions are managed
+    # by Supabase and local session persistence is explicit ("Remember me").
     action = params.get('action', [None])[0] if params else None
     if action == 'logout':
-        try:
-            sign_out()
-        except Exception:
-            pass
-        try:
-            st.session_state.pop('user', None)
-        except Exception:
-            pass
-        try:
-            delete_local_session()
-        except Exception:
-            pass
+        # Intentionally do nothing. To sign out programmatically, use the Supabase
+        # sign_out() helper from a deliberate UI action.
+        pass
+    # Conditionally hide Streamlit chrome (Main menu, header, footer) on specific pages
+    try:
+        page_for_ui = params.get('page', [None])[0] if params else None
+        if page_for_ui in (None, 'investment'):
+            st.markdown(
+                """
+                <style>
+                /* Hide hamburger menu */
+                #MainMenu {visibility: hidden;}
+                /* Hide header and footer */
+                header {visibility: hidden;}
+                footer {visibility: hidden;}
+                </style>
+                """,
+                unsafe_allow_html=True,
+            )
+    except Exception:
+        pass
 except Exception:
     pass
 
@@ -3745,72 +3782,73 @@ def show_page():
                 except Exception:
                     current_uid = None
 
-            # If no valid UID, show login/register forms
-            if not current_uid:
-                st.markdown("#### 🔐 Login or Register")
-                email = st.text_input('Email', key='auth_email')
-                password = st.text_input('Password', type='password', key='auth_password')
-                # Remember on this device is mandatory
-                remember_me = True
-                coll1, coll2 = st.columns(2)
-                with coll1:
-                    if st.button('Login'):
-                        ok, resp = sign_in(email, password)
-                        if ok:
-                            # Normalize response to a user object that contains 'id' and 'email'
-                            user_obj = None
-                            if isinstance(resp, dict):
-                                user_obj = resp.get('user') or resp.get('data', {}).get('user') or resp.get('data', {}).get('session', {}).get('user') or resp
-                            else:
-                                user_obj = getattr(resp, 'user', None) or getattr(resp, 'data', None) or resp
-                            # set session and persist locally (remember is mandatory)
-                            st.session_state['user'] = user_obj
-                            try:
-                                save_local_session(user_obj)
-                                st.session_state['remember_me'] = True
-                            except Exception:
-                                pass
-                            # ensure we have the uid before saving refresh token
-                            try:
-                                uid = user_obj.get('id') if isinstance(user_obj, dict) else getattr(user_obj, 'id', None)
-                            except Exception:
-                                uid = None
-                            # If the response contains a refresh token, save it server-side in Supabase and add remember_uid redirect
-                            try:
-                                refresh_token = None
+                # If no valid UID, show login/register forms
+                if not current_uid:
+                    st.markdown("#### 🔐 Login or Register")
+                    email = st.text_input('Email', key='auth_email')
+                    password = st.text_input('Password', type='password', key='auth_password')
+                    # Remember on this device by default for per-device persistent sessions
+                    remember_me = True
+                    coll1, coll2 = st.columns(2)
+                    with coll1:
+                        if st.button('Login'):
+                            ok, resp = sign_in(email, password)
+                            if ok:
+                                # Normalize response to a user object that contains 'id' and 'email'
+                                user_obj = None
                                 if isinstance(resp, dict):
-                                    refresh_token = resp.get('session', {}).get('refresh_token') or resp.get('refresh_token') or resp.get('data', {}).get('refresh_token')
+                                    user_obj = resp.get('user') or resp.get('data', {}).get('user') or resp.get('data', {}).get('session', {}).get('user') or resp
                                 else:
-                                    refresh_token = getattr(resp, 'refresh_token', None) or (getattr(resp, 'data', None) and getattr(getattr(resp, 'data', None), 'refresh_token', None))
-                                if refresh_token and uid:
-                                    save_refresh_token_to_db(uid, refresh_token)
-                                    # always append remember_uid so reloads can restore session
-                                    js = f"<script>window.location.search = '?remember_uid={uid}';</script>"
-                                    st.markdown(js, unsafe_allow_html=True)
-                            except Exception:
-                                pass
-                            # ensure user record with credits exists
-                            try:
-                                uid = user_obj.get('id') if isinstance(user_obj, dict) else getattr(user_obj, 'id', None)
-                                create_user_record_if_missing(uid, email)
-                                st.success('Logged in')
-                                # Refresh so the UI switches to the compact session bar
+                                    user_obj = getattr(resp, 'user', None) or getattr(resp, 'data', None) or resp
+                                # set session and persist locally only if user asked to be remembered
+                                st.session_state['user'] = user_obj
                                 try:
-                                    st.experimental_rerun()
+                                    # Persist locally by default so the user stays signed in on this device
+                                    save_local_session(user_obj)
+                                    st.session_state['remember_me'] = True
                                 except Exception:
                                     pass
-                            except Exception:
-                                st.success('Logged in (no DB write)')
+                                # ensure we have the uid before saving refresh token
                                 try:
-                                    st.experimental_rerun()
+                                    uid = user_obj.get('id') if isinstance(user_obj, dict) else getattr(user_obj, 'id', None)
+                                except Exception:
+                                    uid = None
+                                # If the response contains a refresh token, save it server-side in Supabase and add remember_uid redirect
+                                try:
+                                    refresh_token = None
+                                    if isinstance(resp, dict):
+                                        refresh_token = resp.get('session', {}).get('refresh_token') or resp.get('refresh_token') or resp.get('data', {}).get('refresh_token')
+                                    else:
+                                        refresh_token = getattr(resp, 'refresh_token', None) or (getattr(resp, 'data', None) and getattr(getattr(resp, 'data', None), 'refresh_token', None))
+                                    if refresh_token and uid:
+                                        save_refresh_token_to_db(uid, refresh_token)
+                                        # always append remember_uid so reloads can restore session
+                                        js = f"<script>window.location.search = '?remember_uid={uid}';</script>"
+                                        st.markdown(js, unsafe_allow_html=True)
                                 except Exception:
                                     pass
-                        else:
-                            st.error(f'Login failed: {resp}')
-                with coll2:
-                    if st.button('Register'):
-                        ok, resp = sign_up(email, password)
-                        if ok:
+                                # ensure user record with credits exists
+                                try:
+                                    uid = user_obj.get('id') if isinstance(user_obj, dict) else getattr(user_obj, 'id', None)
+                                    create_user_record_if_missing(uid, email)
+                                    st.success('Logged in')
+                                    # Refresh so the UI switches to the compact session bar
+                                    try:
+                                        st.experimental_rerun()
+                                    except Exception:
+                                        pass
+                                except Exception:
+                                    st.success('Logged in (no DB write)')
+                                    try:
+                                        st.experimental_rerun()
+                                    except Exception:
+                                        pass
+                            else:
+                                st.error(f'Login failed: {resp}')
+                    with coll2:
+                        if st.button('Register'):
+                            ok, resp = sign_up(email, password)
+                            if ok:
                                 # sign_up may return a dict with 'user' or a user object
                                 user_obj = None
                                 if isinstance(resp, dict):
@@ -3843,7 +3881,7 @@ def show_page():
                                         if isinstance(resp, dict):
                                             refresh_token = resp.get('session', {}).get('refresh_token') or resp.get('refresh_token') or resp.get('data', {}).get('refresh_token')
                                         else:
-                                            refresh_token = getattr(resp, 'refresh_token', None) or getattr(resp, 'data', None) and getattr(getattr(resp, 'data', None), 'refresh_token', None)
+                                            refresh_token = getattr(resp, 'refresh_token', None) or (getattr(resp, 'data', None) and getattr(getattr(resp, 'data', None), 'refresh_token', None))
                                         if refresh_token and uid:
                                             save_refresh_token_to_db(uid, refresh_token)
                                             if st.session_state.get('remember_me'):
@@ -3864,8 +3902,8 @@ def show_page():
                                     st.success('Registration received')
                                     st.info('A confirmation email has been sent by Supabase. Please confirm your email to continue.')
                                     st.warning('You must confirm your email to receive the 300 credits.')
-                        else:
-                            st.error(f'Registration failed: {resp}')
+                            else:
+                                st.error(f'Registration failed: {resp}')
             else:
                 # Compact session bar when the user is logged in
                 user = st.session_state.get('user')
@@ -4515,7 +4553,7 @@ def show_landing_page():
                 <div style='color:#fff;font-weight:700;'>Session started with <span style='color:#10a37f;margin-left:8px;'>{user_email}</span></div>
                 <div style='display:flex;gap:12px;align-items:center;'>
                     <div id='credits-bubble-home' style='background:linear-gradient(90deg,#0ea37f,#076b57);padding:6px 10px;border-radius:999px;color:#fff;font-weight:700;'>Credits: {credits_val if credits_val is not None else 'N/A'}</div>
-                    <a href='?action=logout' style='text-decoration:none;'><div style='background:#111;border:1px solid rgba(255,255,255,0.04);padding:8px 12px;border-radius:10px;color:#fff;font-weight:700;cursor:pointer;'>Logout</div></a>
+                    <!-- Logout UI removed per user request -->
                 </div>
             </div>
             """, unsafe_allow_html=True)
@@ -4578,7 +4616,7 @@ def show_landing_page():
 
                                             st.session_state['user'] = user_obj
                                             try:
-                                                # always persist locally
+                                                # Persist locally by default when logging in from the landing inline form
                                                 save_local_session(user_obj)
                                                 st.session_state['remember_me'] = True
                                             except Exception:
@@ -4685,14 +4723,14 @@ def show_landing_page():
                     <br>
                     The <strong>Investment</strong> page hosts an AI-powered Investment Assistant (Finviz screening, strategy guidance and options help). It requires you to be signed in and may consume credits for advanced queries or extended sessions.
                     <br>
-                    Pay <strong>$12</strong> to upgrade to unlimited Sentiment, Investment and KPI Dashboard &amp; Chat access.
+                    Pay <strong>$12</strong> (one-time) to upgrade to unlimited Sentiment, Investment and KPI Dashboard &amp; Chat access — credits from purchases are granted within <strong>5 hours</strong>; we will notify you by email when your upgrade is active. A forthcoming update (included for payers) will add an <strong>Insider Activity ratings</strong> analysis highlighting trades by major investors.
             </p>
             <p style="margin-top:0.25rem; color: #fff; font-size: 0.95rem;">
                 Create an account or log in to track your credits and access the full platform.
             </p>
             <div style="margin-top:0.75rem;">
                 <a href="https://www.paypal.com/ncp/payment/HDFJJ2VJHZBD4" target="_blank" style="text-decoration:none;">
-                    <div style="display:inline-block;background:linear-gradient(90deg,#ff8a00,#ff3d00);color:#111;padding:10px 14px;border-radius:10px;font-weight:800;box-shadow:0 8px 20px rgba(255,60,0,0.18);">I want unlimited credits for $12</div>
+                    <div style="display:inline-block;background:linear-gradient(90deg,#ff8a00,#ff3d00);color:#111;padding:10px 14px;border-radius:10px;font-weight:800;box-shadow:0 8px 20px rgba(255,60,0,0.18);">One-time $12 upgrade — Unlimited access</div>
                 </a>
             </div>
         </div>
