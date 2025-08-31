@@ -1616,12 +1616,31 @@ def sign_in(email: str, password: str):
         return False, "Supabase not initialized"
     try:
         res = supabase.auth.sign_in_with_password({"email": email, "password": password})
+        # Normalize the response to a dict-like object so callers can safely
+        # use resp.get(...) regardless of Supabase client version.
         if isinstance(res, dict):
-            user = res.get('user') or res
+            resp = res
         else:
-            user = getattr(res, 'user', None) or res
-        log_debug(f"sign_in response for {email}: {str(res)}")
-        return True, user
+            resp = {}
+            try:
+                resp['user'] = getattr(res, 'user', None)
+            except Exception:
+                resp['user'] = None
+            try:
+                # Some clients put session data under .session or .data
+                resp['session'] = getattr(res, 'session', None) or getattr(res, 'data', None)
+            except Exception:
+                resp['session'] = None
+            try:
+                resp['refresh_token'] = getattr(res, 'refresh_token', None) or (
+                    resp.get('session') and getattr(resp.get('session'), 'refresh_token', None)
+                )
+            except Exception:
+                resp['refresh_token'] = None
+            # Preserve raw object for debugging
+            resp['raw'] = res
+        log_debug(f"sign_in response for {email}: {str(resp)}")
+        return True, resp
     except Exception as e:
         log_debug(f"sign_in failed for {email}: {e}", exc_info=True)
         return False, str(e)
@@ -2077,6 +2096,18 @@ def show_investment_chatbot():
     """
     Display investment strategy chatbot interface - Modern clean design
     """
+    # Hide Streamlit top menu/header/footer for this page only (remove white bar)
+    st.markdown(
+        """
+        <style>
+        #MainMenu {visibility: hidden;}
+        header[data-testid='stHeader'] {visibility: hidden;}
+        section[role='banner'] {display: none;}
+        footer {visibility: hidden;}
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
     # --- Supabase configuration (Auth + credits) ---
     load_dotenv()
     SUPABASE_URL = os.getenv("SUPABASE_URL", "https://snbkmsivcmsqrdtaotwy.supabase.co")
@@ -2115,8 +2146,27 @@ def show_investment_chatbot():
             return False, "Supabase not initialized"
         try:
             res = supabase.auth.sign_in_with_password({"email": email, "password": password})
-            user = res.get('user') or res
-            return True, user
+            # Normalize response to dict-like for callers
+            if isinstance(res, dict):
+                resp = res
+            else:
+                resp = {}
+                try:
+                    resp['user'] = getattr(res, 'user', None)
+                except Exception:
+                    resp['user'] = None
+                try:
+                    resp['session'] = getattr(res, 'session', None) or getattr(res, 'data', None)
+                except Exception:
+                    resp['session'] = None
+                try:
+                    resp['refresh_token'] = getattr(res, 'refresh_token', None) or (
+                        resp.get('session') and getattr(resp.get('session'), 'refresh_token', None)
+                    )
+                except Exception:
+                    resp['refresh_token'] = None
+                resp['raw'] = res
+            return True, resp
         except Exception as e:
             return False, str(e)
 
@@ -2574,6 +2624,109 @@ def show_investment_chatbot():
     """
 
     st.markdown(info_html.format(credits=(inv_credits if inv_credits is not None else 'N/A')), unsafe_allow_html=True)
+
+    # Inline login for Investment Assistant (appear under the info box)
+    current_user = st.session_state.get('user') if 'user' in st.session_state else None
+    if not current_user:
+        st.markdown('<div style="margin-top:0.5rem;">', unsafe_allow_html=True)
+        st.markdown('<h4 style="color:#10a37f; margin-bottom:0.25rem;">🔐 Login or Register to use the Investment Assistant</h4>', unsafe_allow_html=True)
+        inv_email = st.text_input('Email', value='', key='invest_auth_email', label_visibility='visible')
+        inv_password = st.text_input('Password', type='password', key='invest_auth_password', label_visibility='visible')
+        c1, c2 = st.columns(2)
+        with c1:
+            if st.button('Login', key='invest_login_btn'):
+                ok, resp = sign_in(inv_email, inv_password)
+                if ok:
+                    # Normalize response to a user object
+                    user_obj = None
+                    if isinstance(resp, dict):
+                        user_obj = resp.get('user') or resp.get('data', {}).get('user') or resp.get('data', {}).get('session', {}).get('user') or resp
+                    else:
+                        user_obj = getattr(resp, 'user', None) or getattr(resp, 'data', None) or resp
+                    st.session_state['user'] = user_obj
+                    try:
+                        save_local_session(user_obj)
+                        st.session_state['remember_me'] = True
+                    except Exception:
+                        pass
+                    try:
+                        uid = user_obj.get('id') if isinstance(user_obj, dict) else getattr(user_obj, 'id', None)
+                    except Exception:
+                        uid = None
+                    try:
+                        refresh_token = None
+                        if isinstance(resp, dict):
+                            refresh_token = resp.get('session', {}).get('refresh_token') or resp.get('refresh_token') or resp.get('data', {}).get('refresh_token')
+                        else:
+                            refresh_token = getattr(resp, 'refresh_token', None) or (getattr(resp, 'data', None) and getattr(getattr(resp, 'data', None), 'refresh_token', None))
+                        if refresh_token and uid:
+                            save_refresh_token_to_db(uid, refresh_token)
+                    except Exception:
+                        pass
+                    try:
+                        create_user_record_if_missing(uid, inv_email)
+                    except Exception:
+                        pass
+                    st.success('Logged in')
+                    try:
+                        st.experimental_rerun()
+                    except Exception:
+                        pass
+                else:
+                    st.error(f'Login failed: {resp}')
+        with c2:
+            if st.button('Register', key='invest_register_btn'):
+                ok, resp = sign_up(inv_email, inv_password)
+                if ok:
+                    user_obj = None
+                    if isinstance(resp, dict):
+                        user_obj = resp.get('user') or resp
+                    else:
+                        user_obj = getattr(resp, 'user', None) or resp
+                    confirmed = False
+                    try:
+                        if isinstance(user_obj, dict):
+                            confirmed = bool(user_obj.get('email_confirmed_at') or user_obj.get('confirmed_at'))
+                        else:
+                            confirmed = bool(getattr(user_obj, 'email_confirmed_at', None) or getattr(user_obj, 'confirmed_at', None))
+                    except Exception:
+                        confirmed = False
+                    if confirmed:
+                        st.session_state['user'] = user_obj
+                        try:
+                            save_local_session(user_obj)
+                        except Exception:
+                            pass
+                        try:
+                            uid = user_obj.get('id') if isinstance(user_obj, dict) else getattr(user_obj, 'id', None)
+                        except Exception:
+                            uid = None
+                        try:
+                            refresh_token = None
+                            if isinstance(resp, dict):
+                                refresh_token = resp.get('session', {}).get('refresh_token') or resp.get('refresh_token') or resp.get('data', {}).get('refresh_token')
+                            else:
+                                refresh_token = getattr(resp, 'refresh_token', None) or (getattr(resp, 'data', None) and getattr(getattr(resp, 'data', None), 'refresh_token', None))
+                            if refresh_token and uid:
+                                save_refresh_token_to_db(uid, refresh_token)
+                        except Exception:
+                            pass
+                        try:
+                            create_user_record_if_missing(uid, inv_email)
+                        except Exception:
+                            pass
+                        st.success('Registered and logged in')
+                        try:
+                            st.experimental_rerun()
+                        except Exception:
+                            pass
+                    else:
+                        st.success('Registration received')
+                        st.info('A confirmation email has been sent by Supabase. Please confirm your email to continue.')
+                        st.warning('You must confirm your email to receive the 300 credits.')
+                else:
+                    st.error(f'Registration failed: {resp}')
+        st.markdown('</div>', unsafe_allow_html=True)
 
     # Initialize chat history
     if "investment_chat_history" not in st.session_state:
@@ -3469,6 +3622,115 @@ def show_finviz_dashboard_chat():
             st.session_state['kpis_chat_history'] = []
 
         st.markdown('<div style="color:#10a37f; font-weight:700; margin-top:6px;">Your question</div>', unsafe_allow_html=True)
+        # If user is not authenticated and hasn't triggered the login form yet,
+        # show guidance telling them to press Send to log in.
+        user_obj = st.session_state.get('user') if 'user' in st.session_state else None
+        if (not user_obj) and not st.session_state.get('show_kpis_login'):
+            st.markdown('<div style="color:#10a37f; font-weight:600;">To use the chat, press the "Send" button to log in. You will spend 30 credits — please do not reload the page as the session will be lost.</div>', unsafe_allow_html=True)
+
+        # Render inline login form for KPIs chat when requested
+        if (not user_obj) and st.session_state.get('show_kpis_login'):
+            # Green header and green labels for Email/Password (hide native labels)
+            st.markdown('#### <span style="color:#10a37f">🔐 Login or Register to use the KPI Chat</span>', unsafe_allow_html=True)
+            st.markdown('<div style="color:#10a37f; font-weight:600; margin-bottom:6px;">Email</div>', unsafe_allow_html=True)
+            k_email = st.text_input('', key='kpis_auth_email', label_visibility='collapsed')
+            st.markdown('<div style="color:#10a37f; font-weight:600; margin-top:8px; margin-bottom:6px;">Password</div>', unsafe_allow_html=True)
+            k_password = st.text_input('', type='password', key='kpis_auth_password', label_visibility='collapsed')
+            k_col1, k_col2 = st.columns(2)
+            with k_col1:
+                if st.button('Login', key='kpis_login_btn'):
+                    ok, resp = sign_in(k_email, k_password)
+                    if ok:
+                        user_obj = None
+                        if isinstance(resp, dict):
+                            user_obj = resp.get('user') or resp.get('data', {}).get('user') or resp.get('data', {}).get('session', {}).get('user') or resp
+                        else:
+                            user_obj = getattr(resp, 'user', None) or getattr(resp, 'data', None) or resp
+                        st.session_state['user'] = user_obj
+                        try:
+                            save_local_session(user_obj)
+                        except Exception:
+                            pass
+                        try:
+                            uid = user_obj.get('id') if isinstance(user_obj, dict) else getattr(user_obj, 'id', None)
+                        except Exception:
+                            uid = None
+                        try:
+                            refresh_token = None
+                            if isinstance(resp, dict):
+                                refresh_token = resp.get('session', {}).get('refresh_token') or resp.get('refresh_token') or resp.get('data', {}).get('refresh_token')
+                            else:
+                                refresh_token = getattr(resp, 'refresh_token', None) or (getattr(resp, 'data', None) and getattr(getattr(resp, 'data', None), 'refresh_token', None))
+                            if refresh_token and uid:
+                                save_refresh_token_to_db(uid, refresh_token)
+                                js = f"<script>window.location.search = '?remember_uid={uid}';</script>"
+                                st.markdown(js, unsafe_allow_html=True)
+                        except Exception:
+                            pass
+                        try:
+                            create_user_record_if_missing(uid, k_email)
+                        except Exception:
+                            pass
+                        st.session_state.pop('show_kpis_login', None)
+                        try:
+                            st.experimental_rerun()
+                        except Exception:
+                            pass
+                    else:
+                        st.error(f'Login failed: {resp}')
+            with k_col2:
+                if st.button('Register', key='kpis_register_btn'):
+                    ok, resp = sign_up(k_email, k_password)
+                    if ok:
+                        user_obj = None
+                        if isinstance(resp, dict):
+                            user_obj = resp.get('user') or resp
+                        else:
+                            user_obj = getattr(resp, 'user', None) or resp
+                        confirmed = False
+                        try:
+                            if isinstance(user_obj, dict):
+                                confirmed = bool(user_obj.get('email_confirmed_at') or user_obj.get('confirmed_at'))
+                            else:
+                                confirmed = bool(getattr(user_obj, 'email_confirmed_at', None) or getattr(user_obj, 'confirmed_at', None))
+                        except Exception:
+                            confirmed = False
+                        if confirmed:
+                            st.session_state['user'] = user_obj
+                            try:
+                                save_local_session(user_obj)
+                            except Exception:
+                                pass
+                            try:
+                                uid = user_obj.get('id') if isinstance(user_obj, dict) else getattr(user_obj, 'id', None)
+                            except Exception:
+                                uid = None
+                            try:
+                                refresh_token = None
+                                if isinstance(resp, dict):
+                                    refresh_token = resp.get('session', {}).get('refresh_token') or resp.get('refresh_token') or resp.get('data', {}).get('refresh_token')
+                                else:
+                                    refresh_token = getattr(resp, 'refresh_token', None) or (getattr(resp, 'data', None) and getattr(getattr(resp, 'data', None), 'refresh_token', None))
+                                if refresh_token and uid:
+                                    save_refresh_token_to_db(uid, refresh_token)
+                            except Exception:
+                                pass
+                            try:
+                                create_user_record_if_missing(uid, k_email)
+                            except Exception:
+                                pass
+                            st.session_state.pop('show_kpis_login', None)
+                            try:
+                                st.experimental_rerun()
+                            except Exception:
+                                pass
+                        else:
+                            st.success('Registration received')
+                            st.info('A confirmation email has been sent by Supabase. Please confirm your email to continue.')
+                            st.warning('You must confirm your email to receive the 300 credits.')
+                    else:
+                        st.error(f'Registration failed: {resp}')
+
         chat_input = st.text_area('', height=120, key='kpis_chat_input', label_visibility='collapsed')
 
         if st.button('Send'):
@@ -3483,7 +3745,12 @@ def show_finviz_dashboard_chat():
                 else:
                     # Authentication & credits check (require login and 30 credits to start)
                     if 'user' not in st.session_state or not st.session_state.get('user'):
-                        st.error('You must be logged in to use this feature.')
+                        # Show the inline login form on this page and rerun
+                        st.session_state['show_kpis_login'] = True
+                        try:
+                            st.experimental_rerun()
+                        except Exception:
+                            pass
                     else:
                         user = st.session_state.get('user')
                         uid = user.get('id') if isinstance(user, dict) else getattr(user, 'id', None)
@@ -3776,44 +4043,93 @@ def show_page():
             # Determine whether we have an authenticated user with a valid id
             current_user = st.session_state.get('user') if 'user' in st.session_state else None
             current_uid = None
-            if current_user:
-                try:
-                    current_uid = current_user.get('id') if isinstance(current_user, dict) else getattr(current_user, 'id', None)
-                except Exception:
-                    current_uid = None
 
-                # If no valid UID, show login/register forms
-                if not current_uid:
-                    st.markdown("#### 🔐 Login or Register")
-                    email = st.text_input('Email', key='auth_email')
-                    password = st.text_input('Password', type='password', key='auth_password')
-                    # Remember on this device by default for per-device persistent sessions
-                    remember_me = True
-                    coll1, coll2 = st.columns(2)
-                    with coll1:
-                        if st.button('Login'):
-                            ok, resp = sign_in(email, password)
-                            if ok:
-                                # Normalize response to a user object that contains 'id' and 'email'
-                                user_obj = None
+            # If the user clicked Start Analysis but is not authenticated, show the inline login form here
+            if (not current_user) and st.session_state.get('show_sentiment_login'):
+                st.markdown("#### 🔐 Login or Register")
+                email = st.text_input('Email', key='auth_email')
+                password = st.text_input('Password', type='password', key='auth_password')
+                # Remember on this device by default for per-device persistent sessions
+                remember_me = True
+                coll1, coll2 = st.columns(2)
+                with coll1:
+                    if st.button('Login'):
+                        ok, resp = sign_in(email, password)
+                        if ok:
+                            # Normalize response to a user object that contains 'id' and 'email'
+                            user_obj = None
+                            if isinstance(resp, dict):
+                                user_obj = resp.get('user') or resp.get('data', {}).get('user') or resp.get('data', {}).get('session', {}).get('user') or resp
+                            else:
+                                user_obj = getattr(resp, 'user', None) or getattr(resp, 'data', None) or resp
+                            # set session and persist locally only if user asked to be remembered
+                            st.session_state['user'] = user_obj
+                            try:
+                                save_local_session(user_obj)
+                                st.session_state['remember_me'] = True
+                            except Exception:
+                                pass
+                            try:
+                                uid = user_obj.get('id') if isinstance(user_obj, dict) else getattr(user_obj, 'id', None)
+                            except Exception:
+                                uid = None
+                            try:
+                                refresh_token = None
                                 if isinstance(resp, dict):
-                                    user_obj = resp.get('user') or resp.get('data', {}).get('user') or resp.get('data', {}).get('session', {}).get('user') or resp
+                                    refresh_token = resp.get('session', {}).get('refresh_token') or resp.get('refresh_token') or resp.get('data', {}).get('refresh_token')
                                 else:
-                                    user_obj = getattr(resp, 'user', None) or getattr(resp, 'data', None) or resp
-                                # set session and persist locally only if user asked to be remembered
-                                st.session_state['user'] = user_obj
+                                    refresh_token = getattr(resp, 'refresh_token', None) or (getattr(resp, 'data', None) and getattr(getattr(resp, 'data', None), 'refresh_token', None))
+                                if refresh_token and uid:
+                                    save_refresh_token_to_db(uid, refresh_token)
+                                    js = f"<script>window.location.search = '?remember_uid={uid}';</script>"
+                                    st.markdown(js, unsafe_allow_html=True)
+                            except Exception:
+                                pass
+                            try:
+                                uid = user_obj.get('id') if isinstance(user_obj, dict) else getattr(user_obj, 'id', None)
+                                create_user_record_if_missing(uid, email)
+                                st.success('Logged in')
                                 try:
-                                    # Persist locally by default so the user stays signed in on this device
-                                    save_local_session(user_obj)
-                                    st.session_state['remember_me'] = True
+                                    # Clear the flag and rerun so the normal session bar appears
+                                    st.session_state.pop('show_sentiment_login', None)
                                 except Exception:
                                     pass
-                                # ensure we have the uid before saving refresh token
                                 try:
-                                    uid = user_obj.get('id') if isinstance(user_obj, dict) else getattr(user_obj, 'id', None)
+                                    st.experimental_rerun()
                                 except Exception:
-                                    uid = None
-                                # If the response contains a refresh token, save it server-side in Supabase and add remember_uid redirect
+                                    pass
+                            except Exception:
+                                st.success('Logged in (no DB write)')
+                                try:
+                                    st.experimental_rerun()
+                                except Exception:
+                                    pass
+                        else:
+                            st.error(f'Login failed: {resp}')
+                with coll2:
+                    if st.button('Register'):
+                        ok, resp = sign_up(email, password)
+                        if ok:
+                            user_obj = None
+                            if isinstance(resp, dict):
+                                user_obj = resp.get('user') or resp
+                            else:
+                                user_obj = getattr(resp, 'user', None) or resp
+                            confirmed = False
+                            try:
+                                if isinstance(user_obj, dict):
+                                    confirmed = bool(user_obj.get('email_confirmed_at') or user_obj.get('confirmed_at'))
+                                else:
+                                    confirmed = bool(getattr(user_obj, 'email_confirmed_at', None) or getattr(user_obj, 'confirmed_at', None))
+                            except Exception:
+                                confirmed = False
+                            if confirmed:
+                                st.session_state['user'] = user_obj
+                                try:
+                                    if st.session_state.get('remember_me'):
+                                        save_local_session(user_obj)
+                                except Exception:
+                                    pass
                                 try:
                                     refresh_token = None
                                     if isinstance(resp, dict):
@@ -3822,88 +4138,28 @@ def show_page():
                                         refresh_token = getattr(resp, 'refresh_token', None) or (getattr(resp, 'data', None) and getattr(getattr(resp, 'data', None), 'refresh_token', None))
                                     if refresh_token and uid:
                                         save_refresh_token_to_db(uid, refresh_token)
-                                        # always append remember_uid so reloads can restore session
-                                        js = f"<script>window.location.search = '?remember_uid={uid}';</script>"
-                                        st.markdown(js, unsafe_allow_html=True)
+                                        if st.session_state.get('remember_me'):
+                                            js = f"<script>window.location.search = '?remember_uid={uid}';</script>"
+                                            st.markdown(js, unsafe_allow_html=True)
                                 except Exception:
                                     pass
-                                # ensure user record with credits exists
+                                uid = user_obj.get('id') if isinstance(user_obj, dict) else getattr(user_obj, 'id', None)
+                                create_user_record_if_missing(uid, email)
+                                st.success('Registered and logged in')
                                 try:
-                                    uid = user_obj.get('id') if isinstance(user_obj, dict) else getattr(user_obj, 'id', None)
-                                    create_user_record_if_missing(uid, email)
-                                    st.success('Logged in')
-                                    # Refresh so the UI switches to the compact session bar
-                                    try:
-                                        st.experimental_rerun()
-                                    except Exception:
-                                        pass
+                                    st.session_state.pop('show_sentiment_login', None)
                                 except Exception:
-                                    st.success('Logged in (no DB write)')
-                                    try:
-                                        st.experimental_rerun()
-                                    except Exception:
-                                        pass
-                            else:
-                                st.error(f'Login failed: {resp}')
-                    with coll2:
-                        if st.button('Register'):
-                            ok, resp = sign_up(email, password)
-                            if ok:
-                                # sign_up may return a dict with 'user' or a user object
-                                user_obj = None
-                                if isinstance(resp, dict):
-                                    user_obj = resp.get('user') or resp
-                                else:
-                                    user_obj = getattr(resp, 'user', None) or resp
-
-                                # Check common confirmation fields set by Supabase
-                                confirmed = False
+                                    pass
                                 try:
-                                    if isinstance(user_obj, dict):
-                                        confirmed = bool(user_obj.get('email_confirmed_at') or user_obj.get('confirmed_at'))
-                                    else:
-                                        confirmed = bool(getattr(user_obj, 'email_confirmed_at', None) or getattr(user_obj, 'confirmed_at', None))
+                                    st.experimental_rerun()
                                 except Exception:
-                                    confirmed = False
-
-                                if confirmed:
-                                    # user already confirmed: set session and create DB record with credits
-                                    st.session_state['user'] = user_obj
-                                    # Persist session locally if requested
-                                    try:
-                                        if st.session_state.get('remember_me'):
-                                            save_local_session(user_obj)
-                                    except Exception:
-                                        pass
-                                    # Save refresh token if present
-                                    try:
-                                        refresh_token = None
-                                        if isinstance(resp, dict):
-                                            refresh_token = resp.get('session', {}).get('refresh_token') or resp.get('refresh_token') or resp.get('data', {}).get('refresh_token')
-                                        else:
-                                            refresh_token = getattr(resp, 'refresh_token', None) or (getattr(resp, 'data', None) and getattr(getattr(resp, 'data', None), 'refresh_token', None))
-                                        if refresh_token and uid:
-                                            save_refresh_token_to_db(uid, refresh_token)
-                                            if st.session_state.get('remember_me'):
-                                                js = f"<script>window.location.search = '?remember_uid={uid}';</script>"
-                                                st.markdown(js, unsafe_allow_html=True)
-                                    except Exception:
-                                        pass
-                                    uid = user_obj.get('id') if isinstance(user_obj, dict) else getattr(user_obj, 'id', None)
-                                    create_user_record_if_missing(uid, email)
-                                    st.success('Registered and logged in')
-                                    # Immediately rerun so the logged-in bar replaces the form
-                                    try:
-                                        st.experimental_rerun()
-                                    except Exception:
-                                        pass
-                                else:
-                                    # Not confirmed yet: do not set session; let Supabase handle confirmation
-                                    st.success('Registration received')
-                                    st.info('A confirmation email has been sent by Supabase. Please confirm your email to continue.')
-                                    st.warning('You must confirm your email to receive the 300 credits.')
+                                    pass
                             else:
-                                st.error(f'Registration failed: {resp}')
+                                st.success('Registration received')
+                                st.info('A confirmation email has been sent by Supabase. Please confirm your email to continue.')
+                                st.warning('You must confirm your email to receive the 300 credits.')
+                        else:
+                            st.error(f'Registration failed: {resp}')
             else:
                 # Compact session bar when the user is logged in
                 user = st.session_state.get('user')
@@ -3978,10 +4234,19 @@ def show_page():
 
         # Start Analysis button (requires login & credits)
         with col_center:
-            if st.button("🚀 Start Analysis", use_container_width=True):
+            # If user is not authenticated and hasn't triggered the login form yet,
+            # show guidance telling them to press the Start Analysis button to log in.
+            if (not current_user) and not st.session_state.get('show_sentiment_login'):
+                st.info('To log in, press the "Start Analysis" button. You are spending 50 credits — I recommend not reloading the page as the session will be lost.')
+            if st.button("🚀 Start Analysis ", use_container_width=True):
                 # Authentication check
                 if 'user' not in st.session_state or not st.session_state.get('user'):
-                    st.error('You must be logged in to start an analysis. Please register or login.')
+                    # Show the inline login form on the sentiment page and rerun
+                    st.session_state['show_sentiment_login'] = True
+                    try:
+                        st.experimental_rerun()
+                    except Exception:
+                        pass
                     return
                 user = st.session_state.get('user')
                 uid = user.get('id') if isinstance(user, dict) else getattr(user, 'id', None)
@@ -4558,87 +4823,9 @@ def show_landing_page():
             </div>
             """, unsafe_allow_html=True)
         else:
-            # If user just logged out, optionally redirect to sentiment page where login form lives
-            show_login = st.session_state.get('show_login_on_landing', False)
-            if show_login:
-                js = "<script>window.location.search = '?page=sentiment';</script>"
-                st.markdown(js, unsafe_allow_html=True)
-            else:
-                # Render a Streamlit-native banner so we can show a real button that toggles an inline login form
-                banner_cols = st.columns([3, 1])
-                with banner_cols[0]:
-                    st.markdown("""
-                    <div style='color:#fff;font-weight:700;padding:6px 0;'>No account is currently signed in</div>
-                    """, unsafe_allow_html=True)
-                with banner_cols[1]:
-                    if st.button('Sign in / Register', key='landing_signin_btn'):
-                        st.session_state['show_landing_login'] = True
-                        # keep user on landing and show the inline login/register form
-                        st.experimental_rerun()
-
-                    # If the user asked to show the login form on the landing page, render it inline here
-                    if st.session_state.get('show_landing_login'):
-                        st.markdown("""
-                        <div style="display:flex;align-items:center;gap:12px;margin-bottom:8px;">
-                            <div style="width:44px;height:44px;border-radius:50%;background:#10a37f;display:flex;align-items:center;justify-content:center;font-size:20px;">🔐</div>
-                            <div style="color:#ffffff;font-weight:700;font-size:20px;">Login or Register</div>
-                        </div>
-                        """, unsafe_allow_html=True)
-                        # Email input with custom white label
-                        st.markdown("""
-                        <div style='margin-bottom:6px;'><label style='color:#ffffff;font-weight:600;'>Email</label></div>
-                        """, unsafe_allow_html=True)
-                        email = st.text_input('', key='auth_email', placeholder='you@domain.com', label_visibility='collapsed')
-                        # Password input with custom white label
-                        st.markdown("""
-                        <div style='margin-top:6px;margin-bottom:6px;'><label style='color:#ffffff;font-weight:600;'>Password</label></div>
-                        """, unsafe_allow_html=True)
-                        password = st.text_input('', type='password', key='auth_password', placeholder='Your password', label_visibility='collapsed')
-                        # Remember me rendered as checkbox + white label
-                        cb_col, lbl_col = st.columns([1, 20])
-                        with cb_col:
-                            remember_val = st.checkbox('', value=False, key='remember_me')
-                        with lbl_col:
-                            st.markdown("""
-                            <div style='color:#ffffff; margin-top:8px;'>Remember me on this device</div>
-                            """, unsafe_allow_html=True)
-                        remember_me = remember_val
-                        coll1, coll2 = st.columns(2)
-                        with coll1:
-                            if st.button('Login', key='landing_login_btn'):
-                                ok, resp = sign_in(email, password)
-                                if ok:
-                                            user_obj = None
-                                            if isinstance(resp, dict):
-                                                user_obj = resp.get('user') or resp.get('data', {}).get('user') or resp.get('data', {}).get('session', {}).get('user') or resp
-                                            else:
-                                                user_obj = getattr(resp, 'user', None) or getattr(resp, 'data', None) or resp
-
-                                            st.session_state['user'] = user_obj
-                                            try:
-                                                # Persist locally by default when logging in from the landing inline form
-                                                save_local_session(user_obj)
-                                                st.session_state['remember_me'] = True
-                                            except Exception:
-                                                pass
-                                            # ensure user record exists
-                                            try:
-                                                uid = user_obj.get('id') if isinstance(user_obj, dict) else getattr(user_obj, 'id', None)
-                                                if uid:
-                                                    create_user_record_if_missing(uid, user_obj.get('email') if isinstance(user_obj, dict) else getattr(user_obj, 'email', ''))
-                                            except Exception:
-                                                pass
-                                            # hide the inline login form after successful login
-                                            st.session_state['show_landing_login'] = False
-                                            st.experimental_rerun()
-                        with coll2:
-                            if st.button('Register', key='landing_register_btn'):
-                                ok, resp = sign_up(email, password)
-                                if ok:
-                                    # Show message instructing user to confirm email (match sentiment section)
-                                    st.success('Registration received')
-                                    st.info('A confirmation email has been sent by Supabase. Please confirm your email to continue.')
-                                    st.warning('You must confirm your email to receive the 300 credits.')
+            # Do not show sign-in controls on the public landing page to avoid accidental server-side logins.
+            # Login is intentionally moved to the sentiment page and only shown when needed.
+            pass
     except Exception:
         pass
 
@@ -4718,8 +4905,8 @@ def show_landing_page():
             <h3 style="margin-bottom:0.25rem;">Access &amp; Credits</h3>
             <p style="margin-top:0.5rem; color: #ddd;">
                 To run analyses you must be signed in. Each new account receives <strong>300 credits</strong>.
-                Starting a sentiment analysis costs <strong>50 credits</strong>, while a conversation with the <strong>Investment</strong> assistant costs <strong>100 credits</strong>.
-                Credits are deducted automatically when you press <em>Start Analysis</em> or when you submit an investment request.
+                Starting a sentiment analysis costs <strong>50 credits</strong>, a KPI Dashboard &amp; Chat conversation costs <strong>30 credits</strong>, while a conversation with the <strong>Investment</strong> assistant costs <strong>100 credits</strong>.
+                Credits are deducted automatically when you press <em>Start Analysis</em>, when you submit a KPI Chat question, or when you submit an investment request.
                     <br>
                     The <strong>Investment</strong> page hosts an AI-powered Investment Assistant (Finviz screening, strategy guidance and options help). It requires you to be signed in and may consume credits for advanced queries or extended sessions.
                     <br>
