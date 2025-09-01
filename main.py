@@ -2126,18 +2126,43 @@ def show_investment_chatbot():
             return False, "Supabase not initialized"
         try:
             res = supabase.auth.sign_up({"email": email, "password": password})
-            user = res.get('user') or res
+            # Normalize response to dict-like so callers can use .get safely
+            if isinstance(res, dict):
+                resp = res
+            else:
+                resp = {}
+                try:
+                    resp['user'] = getattr(res, 'user', None)
+                except Exception:
+                    resp['user'] = None
+                try:
+                    # some supabase libs put session or data
+                    resp['session'] = getattr(res, 'session', None) or getattr(res, 'data', None)
+                except Exception:
+                    resp['session'] = None
+                try:
+                    resp['refresh_token'] = getattr(res, 'refresh_token', None) or (
+                        resp.get('session') and getattr(resp.get('session'), 'refresh_token', None)
+                    )
+                except Exception:
+                    resp['refresh_token'] = None
+                resp['raw'] = res
+
             # create users record with 300 credits (if table exists)
             try:
-                if user and user.get('id'):
+                user_obj = resp.get('user') if isinstance(resp, dict) else None
+                if not user_obj:
+                    # fallback if user is nested
+                    user_obj = (resp.get('data') or {}).get('user') if isinstance(resp.get('data'), dict) else None
+                if user_obj and hasattr(user_obj, 'get') and user_obj.get('id'):
                     supabase.table('users').upsert({
-                        'id': user['id'],
+                        'id': user_obj['id'],
                         'email': email,
                         'credits': 300
                     }).execute()
             except Exception:
                 pass
-            return True, user
+            return True, resp
         except Exception as e:
             return False, str(e)
 
@@ -2568,14 +2593,7 @@ def show_investment_chatbot():
     )
 
     col_left, col_center, col_right = st.columns([1, 8, 1])
-    with col_left:
-        if st.button("← Back", type="secondary"):
-            st.session_state.current_page = "landing"
-            try:
-                st.experimental_set_query_params(page="landing")
-            except Exception:
-                pass
-            st.experimental_rerun()
+    # Left back button removed per user request (was: "← Back")
     with col_center:
         st.markdown('<h1 class="page-title">🎯 Investment Strategy Assistant</h1>', unsafe_allow_html=True)
     
@@ -2630,8 +2648,11 @@ def show_investment_chatbot():
     if not current_user:
         st.markdown('<div style="margin-top:0.5rem;">', unsafe_allow_html=True)
         st.markdown('<h4 style="color:#10a37f; margin-bottom:0.25rem;">🔐 Login or Register to use the Investment Assistant</h4>', unsafe_allow_html=True)
-        inv_email = st.text_input('Email', value='', key='invest_auth_email', label_visibility='visible')
-        inv_password = st.text_input('Password', type='password', key='invest_auth_password', label_visibility='visible')
+        # Render green labels explicitly and collapse Streamlit's built-in labels so the text color matches the header
+        st.markdown('<div style="color:#10a37f; font-weight:600; margin-bottom:6px;">Email</div>', unsafe_allow_html=True)
+        inv_email = st.text_input('', value='', key='invest_auth_email', label_visibility='collapsed', placeholder='you@example.com')
+        st.markdown('<div style="color:#10a37f; font-weight:600; margin-top:8px; margin-bottom:6px;">Password</div>', unsafe_allow_html=True)
+        inv_password = st.text_input('', type='password', key='invest_auth_password', label_visibility='collapsed')
         c1, c2 = st.columns(2)
         with c1:
             if st.button('Login', key='invest_login_btn'):
@@ -4032,8 +4053,8 @@ def show_page():
     st.markdown("""
     <div class="glass-card">
         <h3>🎯 Analysis Configuration</h3>
-        <p>Enter the stock symbols you want to analyze, separated by commas</p>
-        <p style="font-size: 0.9rem; opacity: 0.7;">Examples: AAPL, MSFT, GOOGL, TSLA, NVDA</p>
+    <p>Enter a single stock symbol to analyze (one ticker only)</p>
+    <p style="font-size: 0.9rem; opacity: 0.7;">Example: AAPL</p>
     </div>
     """, unsafe_allow_html=True)
     
@@ -5089,14 +5110,7 @@ def show_sentiment_analysis():
     # Back button and title
     col1, col2 = st.columns([1, 8])
     
-    with col1:
-        if st.button("← Back", type="secondary"):
-            st.session_state.current_page = "landing"
-            try:
-                st.experimental_set_query_params(page="landing")
-            except Exception:
-                pass
-            st.experimental_rerun()
+    # back navigation removed per user request
     
     with col2:
         # Title is handled by show_page() - no duplicate needed here
