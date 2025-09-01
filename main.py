@@ -3060,6 +3060,48 @@ def show_investment_chatbot():
     </div>
     """, unsafe_allow_html=True)
 
+def show_terms_page():
+    """
+    Render a simple, dark-mode Terms & Conditions page at ?page=terms
+    """
+    terms_html = """
+    <div style="background:#071018;color:#e6eef0;padding:32px;border-radius:8px;max-width:900px;margin:24px auto;">
+        <h1 style="color:#9ff1dd;margin-top:0;">Terms &amp; Conditions</h1>
+        <p style="color:#cfe8e2;">Last updated: August 31, 2025</p>
+        <hr style="border-color:#013235;"/>
+        <h3 style="color:#bff3de;">Agreement to Terms</h3>
+        <p style="color:#cfe8e2;">By accessing or using Stockfeels (the “Service”), you agree to be bound by these Terms &amp; Conditions. If you do not agree, do not use the Service.</p>
+
+        <h3 style="color:#bff3de;">Service Description</h3>
+        <p style="color:#cfe8e2;">Stockfeels provides AI-driven market analysis, sentiment summaries, and investment tools to assist users in research and decision-making. The Service does not provide personalized financial advice unless explicitly agreed upon in a separate contract.</p>
+
+        <h3 style="color:#bff3de;">User Conduct</h3>
+        <p style="color:#cfe8e2;">You agree not to misuse the Service, attempt to reverse-engineer data-collection mechanisms, or interfere with operation. You are responsible for any content you provide and must ensure you have rights to share it.</p>
+
+        <h3 style="color:#bff3de;">Intellectual Property</h3>
+        <p style="color:#cfe8e2;">All content, trademarks, and data displayed by the Service are the property of their respective owners. You are granted a limited, non-exclusive license to use the Service for your personal or internal business purposes.</p>
+
+        <h3 style="color:#bff3de;">Limitation of Liability</h3>
+        <p style="color:#cfe8e2;">To the fullest extent permitted by law, Stockfeels and its affiliates will not be liable for any indirect, incidental, special or consequential damages arising out of or related to your use of the Service.</p>
+
+        <h3 style="color:#bff3de;">Governing Law</h3>
+        <p style="color:#cfe8e2;">These Terms are governed by the laws of the jurisdiction where the company is incorporated. Consult legal counsel for specific guidance.</p>
+
+        <h3 style="color:#bff3de;">Contact</h3>
+        <p style="color:#cfe8e2;">For questions about these terms, contact <a href="mailto:stockfeels@gmail.com">stockfeels@gmail.com</a>.</p>
+
+        <div style="margin-top:18px;text-align:right;">
+            <a href="/" style="display:inline-block;padding:8px 12px;border-radius:6px;background:#0f766e;color:#fff;text-decoration:none;font-weight:600;">Home</a>
+        </div>
+    </div>
+    """
+
+    try:
+        import streamlit.components.v1 as components
+        components.html(terms_html, height=820, scrolling=True)
+    except Exception:
+        st.markdown(terms_html, unsafe_allow_html=True)
+
 def test_firecrawl_connection():
     """
     Prueba la conexión con Firecrawl
@@ -4765,7 +4807,7 @@ def main():
         params = st.query_params
         if "page" in params:
             page_val = params["page"][0] if isinstance(params["page"], list) else params["page"]
-            if page_val in ("landing", "sentiment", "investment", "kpis_chat"):
+            if page_val in ("landing", "sentiment", "investment", "kpis_chat", "privacy", "terms"):
                 st.session_state.current_page = page_val
     except Exception:
         pass
@@ -4779,6 +4821,10 @@ def main():
         show_investment_chatbot()
     elif st.session_state.current_page == "kpis_chat":
         show_finviz_dashboard_chat()
+    elif st.session_state.current_page == "privacy":
+        show_privacy_page()
+    elif st.session_state.current_page == "terms":
+        show_terms_page()
 
 def show_landing_page():
     """
@@ -5029,6 +5075,10 @@ def show_landing_page():
         <p style="margin: 6px 0 0 0; font-size: 0.75rem; color: #999; max-width:800px; margin-left:auto; margin-right:auto;">
             Disclaimer: Content is for informational purposes only and does not constitute financial advice. Market data may be delayed or inaccurate. Users should verify information independently and consult a licensed professional for investment decisions.
         </p>
+        <div style="margin-top:8px;display:flex;gap:10px;justify-content:center;">
+            <a href="?page=privacy" style="display:inline-block;padding:8px 14px;border-radius:6px;background:#0f766e;color:#fff;text-decoration:none;font-weight:600;">Privacy Policy</a>
+            <a href="?page=terms" style="display:inline-block;padding:8px 14px;border-radius:6px;background:#155e75;color:#fff;text-decoration:none;font-weight:600;">Terms &amp; Conditions</a>
+        </div>
     </div>
     """, unsafe_allow_html=True)
 
@@ -5056,6 +5106,67 @@ def show_sentiment_analysis():
     
     # Call the original sentiment analysis function
     show_page()
+
+def show_privacy_page():
+    """
+    Render a simple, dark-mode Privacy Policy page reachable at ?page=privacy
+    """
+    privacy_html = """
+    <div style="background:#071018;color:#e6eef0;padding:32px;border-radius:8px;max-width:900px;margin:24px auto;">
+        <h1 style="color:#9ff1dd;margin-top:0;">Privacy Policy</h1>
+        <p style="color:#cfe8e2;">Last updated: August 31, 2025</p>
+        <hr style="border-color:#013235;"/>
+        <h3 style="color:#bff3de;">Overview</h3>
+        <p style="color:#cfe8e2;">We respect your privacy. This Privacy Policy explains what information we collect, how we use it, and your rights. The policy below is intentionally concise and written in plain English for clarity. It is generic legal text aimed at providing robust coverage; consider having it reviewed by counsel for jurisdiction-specific requirements.</p>
+
+        <h3 style="color:#bff3de;">Information We Collect</h3>
+        <ul style="color:#cfe8e2;">
+            <li>Account information: email and hashed authentication tokens when you create an account.</li>
+            <li>Usage data: pages visited, features used, and timestamps to help improve the service.</li>
+            <li>Optional inputs: any data you explicitly provide in chats, analyses or uploads.</li>
+        </ul>
+
+        <h3 style="color:#bff3de;">How We Use Data</h3>
+        <ul style="color:#cfe8e2;">
+            <li>To provide and maintain the service, including personalized recommendations and AI analysis.</li>
+            <li>To process authentication, manage credits and subscriptions, and store refresh tokens securely.</li>
+            <li>To analyze and improve features, detect abuse, and comply with legal obligations.</li>
+        </ul>
+
+        <h3 style="color:#bff3de;">Data Sharing</h3>
+        <p style="color:#cfe8e2;">We do not sell your personal information. We may share data with:</p>
+        <ul style="color:#cfe8e2;">
+            <li>Service providers who perform services on our behalf (e.g., hosting, analytics, email delivery).</li>
+            <li>When required by law or to respond to lawful requests from public authorities.</li>
+        </ul>
+
+        <h3 style="color:#bff3de;">Security</h3>
+        <p style="color:#cfe8e2;">We implement reasonable administrative, technical, and physical safeguards to protect your information. However, no security system is impenetrable; you acknowledge the residual risk when using online services.</p>
+
+        <h3 style="color:#bff3de;">Your Rights</h3>
+        <p style="color:#cfe8e2;">Depending on your jurisdiction, you may have rights to access, correct, delete, or export your personal data. To exercise these rights, contact us at <a href="mailto:stockfeels@gmail.com">stockfeels@gmail.com</a>.</p>
+
+        <h3 style="color:#bff3de;">Retention</h3>
+        <p style="color:#cfe8e2;">We retain personal data only for as long as necessary to provide the service and comply with legal obligations.</p>
+
+        <h3 style="color:#bff3de;">Third-Party Links</h3>
+        <p style="color:#cfe8e2;">Our service may contain links to third-party websites. We are not responsible for their privacy practices.</p>
+
+        <h3 style="color:#bff3de;">Contact</h3>
+        <p style="color:#cfe8e2;">Questions or concerns about this policy can be directed to <a href="mailto:stockfeels@gmail.com">stockfeels@gmail.com</a>.</p>
+
+        <div style="margin-top:18px;text-align:right;">
+            <a href="/" style="display:inline-block;padding:8px 12px;border-radius:6px;background:#0f766e;color:#fff;text-decoration:none;font-weight:600;">Home</a>
+        </div>
+    </div>
+    """
+
+    try:
+        import streamlit.components.v1 as components
+        components.html(privacy_html, height=780, scrolling=True)
+    except Exception:
+        # Fallback to markdown with unsafe HTML if components are unavailable
+        st.markdown(privacy_html, unsafe_allow_html=True)
 
 if __name__ == "__main__":
     main()
