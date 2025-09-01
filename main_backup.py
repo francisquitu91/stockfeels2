@@ -1021,7 +1021,7 @@ def show_page():
            Automated sentiment analysis with AI for intelligent investment decisions
         </p>
         <p style="font-size: 1rem; opacity: 0.7; margin-top: 0.5rem;">
-           🤖 Smart scraping • Real-time analysis • 🎯 Actionable insights
+           🤖 Intelligent analysis • Real-time data • 🎯 Actionable insights
         </p>
     </div>
     """, unsafe_allow_html=True)

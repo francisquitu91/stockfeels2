@@ -2616,8 +2616,8 @@ def show_investment_chatbot():
             <li><strong>Free credits:</strong> New users receive <strong>300 credits</strong> after confirming their registration email.</li>
             <li><strong>Conversation limit:</strong> Sessions are limited to <strong>5 exchanges</strong> to keep responses focused and fast.</li>
             <li><strong>Credits handling:</strong> Credits are deducted when a request is sent; if the analysis fails we attempt to refund automatically.</li>
-            <li><strong>Features:</strong> Finviz screening, put/option strategy ideas, dividend & growth screens, personalized recommendations based on your profile.</li>
-            <li><strong>Privacy & content:</strong> We do not display internal scraper details to users; only user-facing, client-ready analysis is shown.</li>
+            <li><strong>Features:</strong> Market screening, put/option strategy ideas, dividend & growth filters, and personalized recommendations tailored to your profile.</li>
+            <li><strong>Privacy & content:</strong> We do not expose internal data-collection details; only polished, client-ready analysis is presented to users.</li>
         </ul>
         <p style="color:#9aa; margin:0.5rem 0 0;">Questions? Ask here in chat or contact <a href="mailto:stockfeels@gmail.com">stockfeels@gmail.com</a>.</p>
     </div>
@@ -3980,9 +3980,9 @@ def show_page():
         <p style="font-size: 1.3rem; opacity: 0.9; margin-top: 1rem; color: #00d4ff;">
            Automated sentiment analysis with AI for intelligent investment decisions
         </p>
-        <p style="font-size: 1rem; opacity: 0.7; margin-top: 0.5rem;">
-           🤖 Smart scraping • Real-time analysis • 🎯 Actionable insights
-        </p>
+          <p style="font-size: 1rem; opacity: 0.7; margin-top: 0.5rem;">
+              🤖 Intelligent analysis • Real-time data • 🎯 Actionable insights
+          </p>
     </div>
     """, unsafe_allow_html=True)
     
